@@ -1,0 +1,6 @@
+name = "tackomat"
+main = "src/index.ts"
+compatibility_date = "2026-06-08"
+
+[observability]
+enabled = true
