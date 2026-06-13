@@ -1,5 +1,5 @@
 export type Env = {
-  PRODUCTS_COMPLETE_XML_URL: string;
+  PRODUCTS_CSV?: string;
   PRODUCTS_JSON_API_KEY: string;
 };
 

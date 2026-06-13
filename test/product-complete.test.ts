@@ -1,37 +1,44 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { extractApiKey, isAuthorized } from "../src/auth";
-import { parseProductsCompleteXml } from "../src/product-complete";
+import { parseProductsCsv } from "../src/product-complete";
 
-const sampleXml = `<?xml version="1.0" encoding="UTF-8"?>
-<SHOP>
-<SHOPITEM id="610"><NAME>ČAS VDĚČNOSTI</NAME><IMAGES><IMAGE description="vanocni2 web10">https://cdn.myshoptet.com/usr/www.tackomat.cz/user/shop/orig/610_vanocni2-web10.png?68e3fcd3</IMAGE></IMAGES></SHOPITEM>
-<SHOPITEM id="649"><NAME>SVATBA 2026/2/AK</NAME><IMAGES><IMAGE description="podtácky na web (12)">https://cdn.myshoptet.com/usr/www.tackomat.cz/user/shop/orig/649_podtacky-na-web--12.png?696407f0</IMAGE><IMAGE description="podtácky na web (6)">https://cdn.myshoptet.com/usr/www.tackomat.cz/user/shop/orig/649-1_podtacky-na-web--6.png?696407f8</IMAGE></IMAGES></SHOPITEM>
-</SHOP>`;
+const sampleCsv = `\uFEFFcode;pairCode;name;appendix;shortDescription;description;defaultImage;image;image2;internalNote;
+"610";;"ČAS VDĚČNOSTI";"";"";"";"https://cdn.myshoptet.com/usr/www.tackomat.cz/user/shop/orig/610_vanocni2-web10.png?68e3fcd3";"https://cdn.myshoptet.com/usr/www.tackomat.cz/user/shop/orig/610_vanocni2-web10.png?68e3fcd3";;"";
+"649";;"SVATBA 2026/2/AK";"";"";"multi
+line";"https://cdn.myshoptet.com/usr/www.tackomat.cz/user/shop/orig/649_podtacky-na-web--12.png?696407f0";"https://cdn.myshoptet.com/usr/www.tackomat.cz/user/shop/orig/649_podtacky-na-web--12.png?696407f0";"https://cdn.myshoptet.com/usr/www.tackomat.cz/user/shop/orig/649-1_podtacky-na-web--6.png?696407f8";"";`;
 
-test("parseProductsCompleteXml extracts product names and images", () => {
-  const result = parseProductsCompleteXml(sampleXml);
+test("parseProductsCsv extracts product names and images", () => {
+  const result = parseProductsCsv(sampleCsv);
 
   assert.equal(result.products.length, 2);
   assert.equal(result.products[0]?.name, "ČAS VDĚČNOSTI");
   assert.deepEqual(result.products[0]?.images, [
     {
       url: "https://cdn.myshoptet.com/usr/www.tackomat.cz/user/shop/orig/610_vanocni2-web10.png?68e3fcd3",
-      description: "vanocni2 web10",
     },
   ]);
 
   assert.equal(result.products[1]?.name, "SVATBA 2026/2/AK");
   assert.equal(result.products[1]?.images.length, 2);
-  assert.equal(result.products[1]?.images[0]?.description, "podtácky na web (12)");
+  assert.equal(
+    result.products[1]?.images[1]?.url,
+    "https://cdn.myshoptet.com/usr/www.tackomat.cz/user/shop/orig/649-1_podtacky-na-web--6.png?696407f8",
+  );
 });
 
-test("parseProductsCompleteXml skips items without a name", () => {
-  const result = parseProductsCompleteXml(
-    `<SHOP><SHOPITEM id="1"><IMAGES><IMAGE>https://example.com/a.png</IMAGE></IMAGES></SHOPITEM></SHOP>`,
-  );
+test("parseProductsCsv skips rows without a name and deduplicates names", () => {
+  const result = parseProductsCsv(`code;name;image
+"1";;"https://example.com/a.png"
+"2";"Product";"https://example.com/b.png"
+"3";"Product";"https://example.com/c.png"`);
 
-  assert.deepEqual(result.products, []);
+  assert.deepEqual(result.products, [
+    {
+      name: "Product",
+      images: [{ url: "https://example.com/b.png" }],
+    },
+  ]);
 });
 
 test("extractApiKey reads Bearer and X-API-Key headers", () => {
@@ -48,7 +55,6 @@ test("extractApiKey reads Bearer and X-API-Key headers", () => {
 
 test("isAuthorized accepts only matching API keys", () => {
   const env = {
-    PRODUCTS_COMPLETE_XML_URL: "https://example.com/productsComplete.xml",
     PRODUCTS_JSON_API_KEY: "expected-key",
   };
 

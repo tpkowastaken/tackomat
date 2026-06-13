@@ -1,12 +1,10 @@
 import { isAuthorized } from "./auth";
 import type { Env } from "./auth";
 import { extractVse, VseParseError } from "./parser";
-import { parseProductsCompleteXml } from "./product-complete";
-
-const PRODUCTS_XML_CACHE_TTL_SECONDS = 60 * 60;
+import { parseProductsCsv } from "./product-complete";
 
 export default {
-  async fetch(request, env, ctx) {
+  async fetch(request, env) {
     try {
       const url = new URL(request.url);
 
@@ -15,7 +13,7 @@ export default {
       }
 
       if (url.pathname === "/vse" && request.method === "POST") {
-        return await handleVseRequest(request, env, ctx);
+        return await handleVseRequest(request, env);
       }
 
       return Response.json(
@@ -37,7 +35,6 @@ export default {
 async function handleVseRequest(
   request: Request,
   env: Env,
-  ctx: ExecutionContext,
 ): Promise<Response> {
   if (!isAuthorized(request, env)) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
@@ -45,7 +42,7 @@ async function handleVseRequest(
 
   const [html, productsPayload] = await Promise.all([
     readHtmlFromRequest(request),
-    fetchProducts(env, ctx),
+    loadProducts(env),
   ]);
 
   return Response.json(extractVse(html, productsPayload.products), {
@@ -55,53 +52,13 @@ async function handleVseRequest(
   });
 }
 
-async function fetchProducts(
-  env: Env,
-  ctx: ExecutionContext,
-): Promise<ReturnType<typeof parseProductsCompleteXml>> {
-  if (!env.PRODUCTS_COMPLETE_XML_URL) {
-    throw new Response(JSON.stringify({ error: "Products feed is not configured" }), {
-      status: 503,
-      headers: { "content-type": "application/json" },
-    });
-  }
-
-  const cache = getDefaultCache();
-  const cacheKey = new Request(env.PRODUCTS_COMPLETE_XML_URL, { method: "GET" });
-  const cachedResponse = await cache?.match(cacheKey);
-  if (cachedResponse) {
-    return parseProductsCompleteXml(await cachedResponse.text());
-  }
-
-  const xmlResponse = await fetch(cacheKey, {
-    headers: {
-      Accept: "application/xml, text/xml, */*",
-    },
-  });
-
-  if (!xmlResponse.ok) {
-    throw new Response(JSON.stringify({ error: "Failed to fetch products feed" }), {
-      status: 502,
-      headers: { "content-type": "application/json" },
-    });
-  }
-
-  const xml = await xmlResponse.text();
-  if (cache) {
-    const cacheResponse = new Response(xml, {
-      headers: {
-        "Cache-Control": `public, max-age=${PRODUCTS_XML_CACHE_TTL_SECONDS}`,
-        "Content-Type": xmlResponse.headers.get("content-type") ?? "application/xml",
-      },
-    });
-    ctx.waitUntil(cache.put(cacheKey, cacheResponse));
-  }
-
-  return parseProductsCompleteXml(xml);
+async function loadProducts(env: Env): Promise<ReturnType<typeof parseProductsCsv>> {
+  return parseProductsCsv(env.PRODUCTS_CSV ?? (await loadBundledProductsCsv()));
 }
 
-function getDefaultCache(): Cache | undefined {
-  return (globalThis as typeof globalThis & { caches?: { default?: Cache } }).caches?.default;
+async function loadBundledProductsCsv(): Promise<string> {
+  const module = (await import("../products.csv")) as { default: string };
+  return module.default;
 }
 
 async function readHtmlFromRequest(request: Request): Promise<string> {

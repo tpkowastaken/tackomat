@@ -1,8 +1,5 @@
-import { XMLParser } from "fast-xml-parser";
-
 export type ProductImage = {
   url: string;
-  description?: string;
 };
 
 export type Product = {
@@ -14,74 +11,94 @@ export type ProductsResponse = {
   products: Product[];
 };
 
-type RawImage =
-  | string
-  | {
-      "#text"?: string;
-      "@_description"?: string;
-    };
+type CsvRow = Record<string, string>;
 
-type RawShopItem = {
-  NAME?: string;
-  IMAGES?: {
-    IMAGE?: RawImage | RawImage[];
-  };
-};
-
-type RawShop = {
-  SHOP?: {
-    SHOPITEM?: RawShopItem | RawShopItem[];
-  };
-};
-
-const xmlParser = new XMLParser({
-  ignoreAttributes: false,
-  attributeNamePrefix: "@_",
-  trimValues: true,
-  isArray: (name) => name === "SHOPITEM" || name === "IMAGE",
-});
-
-function asArray<T>(value: T | T[] | undefined): T[] {
-  if (value === undefined) {
-    return [];
+export function parseProductsCsv(csv: string): ProductsResponse {
+  const rows = parseCsvRows(csv);
+  if (rows.length === 0) {
+    return { products: [] };
   }
 
-  return Array.isArray(value) ? value : [value];
+  const [rawHeaders, ...rawRows] = rows;
+  const headers = rawHeaders.map((header) => header.replace(/^\uFEFF/, "").trim());
+  const productsByName = new Map<string, Product>();
+
+  for (const rawRow of rawRows) {
+    const row = toRow(headers, rawRow);
+    const name = row.name?.trim();
+    if (!name || productsByName.has(name)) {
+      continue;
+    }
+
+    productsByName.set(name, {
+      name,
+      images: extractImages(row),
+    });
+  }
+
+  return { products: [...productsByName.values()] };
 }
 
-function parseImage(raw: RawImage): ProductImage | null {
-  if (typeof raw === "string") {
-    const url = raw.trim();
-    return url ? { url } : null;
-  }
-
-  const url = raw["#text"]?.trim();
-  if (!url) {
-    return null;
-  }
-
-  const description = raw["@_description"]?.trim();
-  return description ? { url, description } : { url };
+function toRow(headers: string[], values: string[]): CsvRow {
+  const row: CsvRow = {};
+  headers.forEach((header, index) => {
+    row[header] = values[index] ?? "";
+  });
+  return row;
 }
 
-function parseShopItem(item: RawShopItem): Product | null {
-  const name = item.NAME?.trim();
-  if (!name) {
-    return null;
-  }
-
-  const images = asArray(item.IMAGES?.IMAGE)
-    .map(parseImage)
-    .filter((image): image is ProductImage => image !== null);
-
-  return { name, images };
+function extractImages(row: CsvRow): ProductImage[] {
+  return Object.entries(row)
+    .filter(([key]) => key === "defaultImage" || key === "image" || /^image\d+$/.test(key))
+    .map(([, value]) => value.trim())
+    .filter((url, index, urls) => url.length > 0 && urls.indexOf(url) === index)
+    .map((url) => ({ url }));
 }
 
-export function parseProductsCompleteXml(xml: string): ProductsResponse {
-  const parsed = xmlParser.parse(xml) as RawShop;
-  const products = asArray(parsed.SHOP?.SHOPITEM)
-    .map(parseShopItem)
-    .filter((product): product is Product => product !== null);
+function parseCsvRows(csv: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = "";
+  let inQuotes = false;
 
-  return { products };
+  for (let index = 0; index < csv.length; index += 1) {
+    const char = csv[index];
+    const nextChar = csv[index + 1];
+
+    if (char === '"') {
+      if (inQuotes && nextChar === '"') {
+        field += '"';
+        index += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+
+    if (char === ";" && !inQuotes) {
+      row.push(field);
+      field = "";
+      continue;
+    }
+
+    if ((char === "\n" || char === "\r") && !inQuotes) {
+      if (char === "\r" && nextChar === "\n") {
+        index += 1;
+      }
+      row.push(field);
+      rows.push(row);
+      row = [];
+      field = "";
+      continue;
+    }
+
+    field += char;
+  }
+
+  if (field.length > 0 || row.length > 0) {
+    row.push(field);
+    rows.push(row);
+  }
+
+  return rows.filter((csvRow) => csvRow.some((value) => value.length > 0));
 }
