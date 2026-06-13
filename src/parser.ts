@@ -12,13 +12,8 @@ export type ParsedPoznamka = {
 
 export type PoznamkaProduct = {
   name: string;
-  attachments: PoznamkaAttachment[];
-  instrukce: string;
-};
-
-export type PoznamkaAttachment = {
-  filename: string;
   url: string;
+  instrukce: string;
 };
 
 export function extractPoznamka(html: string): string {
@@ -51,20 +46,22 @@ export function parsePoznamkaText(text: string): ParsedPoznamka {
 
     const markerEnd = markerStart + "Instrukce ke grafice:".length;
     const beforeMarker = normalized.slice(0, markerStart).trimEnd();
-    const attachmentBlock = extractAttachmentBlock(beforeMarker);
+    const attachment = beforeMarker.match(
+      /(?<before>[\s\S]*?)\s+(?<fileName>[^\s]+(?:\s+\([^)]+\))?\.[a-z0-9]+)\s+-\s+(?<url>https?:\/\/\S+)$/i,
+    );
 
-    if (!attachmentBlock) {
+    if (!attachment?.groups) {
       break;
     }
 
-    const beforeProduct = attachmentBlock.before;
+    const beforeProduct = attachment.groups.before;
     const productStart = findProductStart(beforeProduct);
     const name = beforeProduct.slice(productStart).trim();
     const instruction = normalized.slice(markerEnd, instructionEnd).trim();
 
     productsReversed.push({
       name,
-      attachments: attachmentBlock.attachments,
+      url: attachment.groups.url,
       instrukce: instruction,
       start: productStart,
     });
@@ -84,53 +81,6 @@ export function parsePoznamkaText(text: string): ParsedPoznamka {
 
 function normalizePoznamkaWhitespace(text: string): string {
   return text.replace(/\s+/g, " ").trim();
-}
-
-function extractAttachmentBlock(
-  textBeforeMarker: string,
-): { before: string; attachments: PoznamkaAttachment[] } | null {
-  const attachmentPattern =
-    /(?<filename>\S+(?:\s+\([^)]+\))?\.[a-z0-9]+)\s+-\s+(?<url>https?:\/\/\S+)/gi;
-  const matches: Array<PoznamkaAttachment & { start: number; end: number }> = [];
-
-  for (const match of textBeforeMarker.matchAll(attachmentPattern)) {
-    if (!match.groups || match.index === undefined) {
-      continue;
-    }
-
-    matches.push({
-      filename: match.groups.filename,
-      url: match.groups.url,
-      start: match.index,
-      end: match.index + match[0].length,
-    });
-  }
-
-  if (matches.length === 0) {
-    return null;
-  }
-
-  const attachments = [matches[matches.length - 1]];
-
-  for (let index = matches.length - 2; index >= 0; index -= 1) {
-    const previous = matches[index];
-    const next = attachments[0];
-
-    if (textBeforeMarker.slice(previous.end, next.start).trim() !== "") {
-      break;
-    }
-
-    attachments.unshift(previous);
-  }
-
-  const firstAttachment = attachments[0];
-
-  return {
-    before: textBeforeMarker.slice(0, firstAttachment.start).trimEnd(),
-    attachments: attachments.map(
-      ({ start: _start, end: _end, ...attachment }) => attachment,
-    ),
-  };
 }
 
 function findProductStart(textBeforeAttachment: string): number {
