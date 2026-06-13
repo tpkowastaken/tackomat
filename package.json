@@ -15,5 +15,8 @@
     "tsx": "^4.20.3",
     "typescript": "^5.8.3",
     "wrangler": "^4.19.1"
+  },
+  "dependencies": {
+    "fast-xml-parser": "^5.8.0"
   }
 }
