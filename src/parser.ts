@@ -56,24 +56,23 @@ export function extractVse(html: string, products: ProductLookup[]): VsePayload 
   const orderNoteLines: string[] = [];
   const orderedProducts: OrderedProduct[] = [];
   let currentProduct: OrderedProduct | null = null;
-  let currentProductImage: unknown | undefined;
   let currentProductHasNote = false;
 
   for (const line of lines) {
     const productName = findProductName(line, productNames);
     if (productName) {
       if (currentProduct && currentProductHasNote) {
-        orderedProducts.push(withProductImage(currentProduct, currentProductImage));
+        orderedProducts.push(currentProduct);
       }
 
       const product = productsByName.get(productName);
       currentProduct = {
         name: product?.name ?? line,
         quantity: 0,
+        ...(product?.images ? { images: product.images } : {}),
         notes: [],
         attachments: [],
       };
-      currentProductImage = product?.images?.[0];
       currentProductHasNote = false;
       continue;
     }
@@ -100,26 +99,12 @@ export function extractVse(html: string, products: ProductLookup[]): VsePayload 
   }
 
   if (currentProduct && currentProductHasNote) {
-    orderedProducts.push(withProductImage(currentProduct, currentProductImage));
+    orderedProducts.push(currentProduct);
   }
 
   return {
     orderNote: orderNoteLines.join("\n"),
     products: orderedProducts,
-  };
-}
-
-function withProductImage(
-  product: OrderedProduct,
-  productImage: unknown | undefined,
-): OrderedProduct {
-  if (product.attachments.length > 0 || productImage === undefined) {
-    return product;
-  }
-
-  return {
-    ...product,
-    images: [productImage],
   };
 }
 

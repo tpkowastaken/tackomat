@@ -24,6 +24,7 @@ Instrukce ke grafice: TEST 2</td></tr></table>`;
   assert.deepEqual(result.products[0], {
     name: "HVĚZDA - oboustranný tisk",
     quantity: 30,
+    images: [{ url: "https://example.com/hvezda.png" }],
     notes: ["Instrukce ke grafice: TEST"],
     attachments: [
       {
@@ -33,28 +34,6 @@ Instrukce ke grafice: TEST 2</td></tr></table>`;
     ],
   });
   assert.deepEqual(result.products[1]?.notes, ["Instrukce ke grafice: TEST 2"]);
-  assert.equal(result.products[0]?.images, undefined);
-  assert.equal(result.products[1]?.images, undefined);
-});
-
-test("extractVse includes only the first product image when attachments are absent", () => {
-  const html = `<table><tr><td>Poznámka:</td><td>SVATBA 2026/1/AK
-25x
-Instrukce ke grafice: TEST 2</td></tr></table>`;
-
-  const result = extractVse(html, [
-    {
-      name: "SVATBA 2026/1/AK",
-      images: [
-        { url: "https://example.com/svatba.png" },
-        { url: "https://example.com/svatba-2.png" },
-      ],
-    },
-  ]);
-
-  assert.deepEqual(result.products[0]?.images, [
-    { url: "https://example.com/svatba.png" },
-  ]);
 });
 
 test("extractVse ignores products without product notes or attachments", () => {
