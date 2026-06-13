@@ -1,39 +1,27 @@
 import { isAuthorized } from "./auth";
 import type { Env } from "./auth";
-import { extractPoznamka, PoznamkaNotFoundError } from "./parser";
+import { extractVse, VseParseError } from "./parser";
 import { parseProductsCompleteXml } from "./product-complete";
-import { sampleEmailHtml } from "./sample-email-html";
 
 export default {
   async fetch(request, env) {
     try {
       const url = new URL(request.url);
 
-      if (url.pathname === "/health") {
+      if (url.pathname === "/") {
         return Response.json({ ok: true });
       }
 
-      if (url.pathname === "/poznamka/sample" && request.method === "GET") {
-        return Response.json({ poznamka: extractPoznamka(sampleEmailHtml) });
-      }
-
-      if (url.pathname === "/poznamka" && request.method === "POST") {
-        const html = await readHtmlFromRequest(request);
-        return Response.json({ poznamka: extractPoznamka(html) });
-      }
-
-      if (url.pathname === "/products" && request.method === "GET") {
-        return handleProductsRequest(request, env);
+      if (url.pathname === "/vse" && request.method === "POST") {
+        return await handleVseRequest(request, env);
       }
 
       return Response.json(
         {
           error: "Not found",
           endpoints: {
-            "GET /products":
-              "Returns product names and images from productsComplete.xml. Requires Authorization: Bearer <api-key> or X-API-Key header.",
-            "POST /poznamka": "Send raw HTML as text/html or JSON as { \"html\": \"...\" }.",
-            "GET /poznamka/sample": "Extracts the poznámka from the bundled sample HTML.",
+            "POST /vse":
+              "Send raw email HTML as text/html or JSON as { \"html\": \"...\" }. Requires Authorization: Bearer <api-key> or X-API-Key header.",
           },
         },
         { status: 404 },
@@ -44,13 +32,29 @@ export default {
   },
 } satisfies ExportedHandler<Env>;
 
-async function handleProductsRequest(request: Request, env: Env): Promise<Response> {
+async function handleVseRequest(request: Request, env: Env): Promise<Response> {
   if (!isAuthorized(request, env)) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const [html, productsPayload] = await Promise.all([
+    readHtmlFromRequest(request),
+    fetchProducts(env),
+  ]);
+
+  return Response.json(extractVse(html, productsPayload.products), {
+    headers: {
+      "Cache-Control": "no-store",
+    },
+  });
+}
+
+async function fetchProducts(env: Env): Promise<ReturnType<typeof parseProductsCompleteXml>> {
   if (!env.PRODUCTS_COMPLETE_XML_URL) {
-    return Response.json({ error: "Products feed is not configured" }, { status: 503 });
+    throw new Response(JSON.stringify({ error: "Products feed is not configured" }), {
+      status: 503,
+      headers: { "content-type": "application/json" },
+    });
   }
 
   const xmlResponse = await fetch(env.PRODUCTS_COMPLETE_XML_URL, {
@@ -60,17 +64,14 @@ async function handleProductsRequest(request: Request, env: Env): Promise<Respon
   });
 
   if (!xmlResponse.ok) {
-    return Response.json({ error: "Failed to fetch products feed" }, { status: 502 });
+    throw new Response(JSON.stringify({ error: "Failed to fetch products feed" }), {
+      status: 502,
+      headers: { "content-type": "application/json" },
+    });
   }
 
   const xml = await xmlResponse.text();
-  const payload = parseProductsCompleteXml(xml);
-
-  return Response.json(payload, {
-    headers: {
-      "Cache-Control": "no-store",
-    },
-  });
+  return parseProductsCompleteXml(xml);
 }
 
 async function readHtmlFromRequest(request: Request): Promise<string> {
@@ -89,7 +90,7 @@ async function readHtmlFromRequest(request: Request): Promise<string> {
 }
 
 export function handleError(error: unknown): Response {
-  if (error instanceof PoznamkaNotFoundError) {
+  if (error instanceof VseParseError) {
     return Response.json({ error: error.message }, { status: 422 });
   }
 

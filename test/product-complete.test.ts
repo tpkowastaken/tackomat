@@ -36,14 +36,14 @@ test("parseProductsCompleteXml skips items without a name", () => {
 
 test("extractApiKey reads Bearer and X-API-Key headers", () => {
   assert.equal(
-    extractApiKey(new Request("https://example.com/products", { headers: { Authorization: "Bearer secret-key" } })),
+    extractApiKey(new Request("https://example.com/vse", { headers: { Authorization: "Bearer secret-key" } })),
     "secret-key",
   );
   assert.equal(
-    extractApiKey(new Request("https://example.com/products", { headers: { "X-API-Key": "header-key" } })),
+    extractApiKey(new Request("https://example.com/vse", { headers: { "X-API-Key": "header-key" } })),
     "header-key",
   );
-  assert.equal(extractApiKey(new Request("https://example.com/products")), null);
+  assert.equal(extractApiKey(new Request("https://example.com/vse")), null);
 });
 
 test("isAuthorized accepts only matching API keys", () => {
@@ -54,14 +54,14 @@ test("isAuthorized accepts only matching API keys", () => {
 
   assert.equal(
     isAuthorized(
-      new Request("https://example.com/products", { headers: { Authorization: "Bearer expected-key" } }),
+      new Request("https://example.com/vse", { headers: { Authorization: "Bearer expected-key" } }),
       env,
     ),
     true,
   );
   assert.equal(
     isAuthorized(
-      new Request("https://example.com/products", { headers: { Authorization: "Bearer wrong-key" } }),
+      new Request("https://example.com/vse", { headers: { Authorization: "Bearer wrong-key" } }),
       env,
     ),
     false,
