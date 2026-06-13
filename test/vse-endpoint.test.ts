@@ -25,8 +25,18 @@ SVATBA 2026/2/AK
 logo.png - https://ext.dklab.cz/_files/poznamka/688683/attachments/logo.png
 Instrukce ke grafice: Použijte černý text.</td></tr></table>`;
 
+function makeExecutionContext(): ExecutionContext {
+  return {
+    passThroughOnException() {},
+    waitUntil(promise) {
+      void promise;
+    },
+    props: {},
+  };
+}
+
 test("GET / returns ok", async () => {
-  const response = await worker.fetch(makeRequest("https://example.com/"), env);
+  const response = await worker.fetch(makeRequest("https://example.com/"), env, makeExecutionContext());
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { ok: true });
 });
@@ -38,6 +48,7 @@ test("POST /vse returns 401 without API key", async () => {
       body: sampleHtml,
     }),
     env,
+    makeExecutionContext(),
   );
 
   assert.equal(response.status, 401);
@@ -62,6 +73,7 @@ test("POST /vse returns order and product data for authorized requests", async (
         body: sampleHtml,
       }),
       env,
+      makeExecutionContext(),
     );
 
     assert.equal(response.status, 200);
@@ -98,6 +110,69 @@ test("POST /vse returns order and product data for authorized requests", async (
   }
 });
 
+test("POST /vse caches the products XML for reuse", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalCaches = globalThis.caches;
+  const cacheStore = new Map<string, Response>();
+  let fetchCount = 0;
+
+  globalThis.fetch = async () => {
+    fetchCount += 1;
+    return new Response(sampleXml, {
+      status: 200,
+      headers: { "content-type": "application/xml" },
+    });
+  };
+  Object.defineProperty(globalThis, "caches", {
+    configurable: true,
+    value: {
+      default: {
+        async match(request: Request) {
+          return cacheStore.get(request.url)?.clone();
+        },
+        async put(request: Request, response: Response) {
+          cacheStore.set(request.url, response.clone());
+        },
+      },
+    },
+  });
+
+  try {
+    const requestInit = {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer test-api-key",
+        "content-type": "text/html",
+      },
+      body: sampleHtml,
+    };
+
+    const firstResponse = await worker.fetch(
+      makeRequest("https://example.com/vse", requestInit),
+      env,
+      makeExecutionContext(),
+    );
+    const secondResponse = await worker.fetch(
+      makeRequest("https://example.com/vse", requestInit),
+      env,
+      makeExecutionContext(),
+    );
+
+    assert.equal(firstResponse.status, 200);
+    assert.equal(secondResponse.status, 200);
+    assert.equal(fetchCount, 1);
+
+    const cachedResponse = cacheStore.get(env.PRODUCTS_COMPLETE_XML_URL);
+    assert.equal(cachedResponse?.headers.get("Cache-Control"), "public, max-age=3600");
+  } finally {
+    globalThis.fetch = originalFetch;
+    Object.defineProperty(globalThis, "caches", {
+      configurable: true,
+      value: originalCaches,
+    });
+  }
+});
+
 test("POST /vse returns 502 when upstream feed fails", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => new Response("not found", { status: 404 });
@@ -110,6 +185,7 @@ test("POST /vse returns 502 when upstream feed fails", async () => {
         body: sampleHtml,
       }),
       env,
+      makeExecutionContext(),
     );
 
     assert.equal(response.status, 502);
@@ -124,6 +200,7 @@ test("old endpoints are not exposed", async () => {
       headers: { Authorization: "Bearer test-api-key" },
     }),
     env,
+    makeExecutionContext(),
   );
 
   assert.equal(response.status, 404);

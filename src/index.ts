@@ -3,8 +3,10 @@ import type { Env } from "./auth";
 import { extractVse, VseParseError } from "./parser";
 import { parseProductsCompleteXml } from "./product-complete";
 
+const PRODUCTS_XML_CACHE_TTL_SECONDS = 60 * 60;
+
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     try {
       const url = new URL(request.url);
 
@@ -13,7 +15,7 @@ export default {
       }
 
       if (url.pathname === "/vse" && request.method === "POST") {
-        return await handleVseRequest(request, env);
+        return await handleVseRequest(request, env, ctx);
       }
 
       return Response.json(
@@ -32,14 +34,18 @@ export default {
   },
 } satisfies ExportedHandler<Env>;
 
-async function handleVseRequest(request: Request, env: Env): Promise<Response> {
+async function handleVseRequest(
+  request: Request,
+  env: Env,
+  ctx: ExecutionContext,
+): Promise<Response> {
   if (!isAuthorized(request, env)) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const [html, productsPayload] = await Promise.all([
     readHtmlFromRequest(request),
-    fetchProducts(env),
+    fetchProducts(env, ctx),
   ]);
 
   return Response.json(extractVse(html, productsPayload.products), {
@@ -49,7 +55,10 @@ async function handleVseRequest(request: Request, env: Env): Promise<Response> {
   });
 }
 
-async function fetchProducts(env: Env): Promise<ReturnType<typeof parseProductsCompleteXml>> {
+async function fetchProducts(
+  env: Env,
+  ctx: ExecutionContext,
+): Promise<ReturnType<typeof parseProductsCompleteXml>> {
   if (!env.PRODUCTS_COMPLETE_XML_URL) {
     throw new Response(JSON.stringify({ error: "Products feed is not configured" }), {
       status: 503,
@@ -57,7 +66,14 @@ async function fetchProducts(env: Env): Promise<ReturnType<typeof parseProductsC
     });
   }
 
-  const xmlResponse = await fetch(env.PRODUCTS_COMPLETE_XML_URL, {
+  const cache = getDefaultCache();
+  const cacheKey = new Request(env.PRODUCTS_COMPLETE_XML_URL, { method: "GET" });
+  const cachedResponse = await cache?.match(cacheKey);
+  if (cachedResponse) {
+    return parseProductsCompleteXml(await cachedResponse.text());
+  }
+
+  const xmlResponse = await fetch(cacheKey, {
     headers: {
       Accept: "application/xml, text/xml, */*",
     },
@@ -71,7 +87,21 @@ async function fetchProducts(env: Env): Promise<ReturnType<typeof parseProductsC
   }
 
   const xml = await xmlResponse.text();
+  if (cache) {
+    const cacheResponse = new Response(xml, {
+      headers: {
+        "Cache-Control": `public, max-age=${PRODUCTS_XML_CACHE_TTL_SECONDS}`,
+        "Content-Type": xmlResponse.headers.get("content-type") ?? "application/xml",
+      },
+    });
+    ctx.waitUntil(cache.put(cacheKey, cacheResponse));
+  }
+
   return parseProductsCompleteXml(xml);
+}
+
+function getDefaultCache(): Cache | undefined {
+  return (globalThis as typeof globalThis & { caches?: { default?: Cache } }).caches?.default;
 }
 
 async function readHtmlFromRequest(request: Request): Promise<string> {
