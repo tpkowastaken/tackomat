@@ -55,6 +55,7 @@ test("extractApiKey reads Bearer and X-API-Key headers", () => {
 
 test("isAuthorized accepts only matching API keys", () => {
   const env = {
+    PRODUCTS_CSV_URL: "https://example.com/products.csv",
     PRODUCTS_JSON_API_KEY: "expected-key",
   };
 
