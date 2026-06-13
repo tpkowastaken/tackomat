@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { extractVse, VseParseError } from "../src/parser";
 
 test("extractVse splits order note, product quantities, notes, and attachments", () => {
-  const html = `<table><tr><td>Poznámka:</td><td>Toto je test
+  const html = `<table><tr><td>Jméno:</td><td>Test test</td></tr><tr><td>Poznámka:</td><td>Toto je test
 HVĚZDA - oboustranný tisk
 30x
 image (2).jpg - https://ext.dklab.cz/_files/poznamka/688683/attachments/688683_773664_1780917100.jpg
@@ -19,6 +19,7 @@ Instrukce ke grafice: TEST 2</td></tr></table>`;
     { name: "SVATBA 2026/1/AK", images: [{ url: "https://example.com/svatba.png" }] },
   ]);
 
+  assert.equal(result.customerName, "Test test");
   assert.equal(result.orderNote, "Toto je test");
   assert.equal(result.products.length, 2);
   assert.deepEqual(result.products[0], {
@@ -41,6 +42,7 @@ test("extractVse ignores products without product notes or attachments", () => {
 55x</td></tr></table>`;
 
   assert.deepEqual(extractVse(html, [{ name: "SVATBA 2026/2/AK" }]), {
+    customerName: "",
     orderNote: "",
     products: [],
   });

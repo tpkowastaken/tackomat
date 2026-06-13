@@ -24,24 +24,33 @@ export type OrderedProduct = {
 };
 
 export type VsePayload = {
+  customerName: string;
   orderNote: string;
   products: OrderedProduct[];
 };
 
-function extractEmailNote(html: string): string {
+function extractEmailField(html: string, labelPattern: string): string | null {
   const normalized = html.replace(/\r\n?/g, "\n");
-  const match = normalized.match(
-    /<td\b[^>]*>\s*Pozn(?:á|&aacute;|&#225;|&#xE1;)mka:\s*<\/td>\s*<td\b[^>]*>([\s\S]*?)<\/td>/i,
-  );
+  const match = normalized.match(new RegExp(
+    `<td\\b[^>]*>\\s*${labelPattern}:\\s*<\\/td>\\s*<td\\b[^>]*>([\\s\\S]*?)<\\/td>`,
+    "i",
+  ));
 
-  if (!match) {
+  return match ? htmlToText(match[1]) : null;
+}
+
+function extractEmailNote(html: string): string {
+  const emailNote = extractEmailField(html, "Pozn(?:á|&aacute;|&#225;|&#xE1;)mka");
+  if (emailNote === null) {
     throw new VseParseError();
   }
 
-  return htmlToText(match[1]);
+  return emailNote;
 }
 
 export function extractVse(html: string, products: ProductLookup[]): VsePayload {
+  const customerName =
+    extractEmailField(html, "Jm(?:é|&eacute;|&#233;|&#xE9;)no") ?? "";
   const emailNote = extractEmailNote(html);
   const lines = emailNote
     .split("\n")
@@ -103,6 +112,7 @@ export function extractVse(html: string, products: ProductLookup[]): VsePayload 
   }
 
   return {
+    customerName,
     orderNote: orderNoteLines.join("\n"),
     products: orderedProducts,
   };

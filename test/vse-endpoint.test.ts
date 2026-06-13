@@ -17,7 +17,7 @@ const env = {
 const sampleCsv = `code;pairCode;name;appendix;shortDescription;description;defaultImage;image;image2;internalNote;
 "649";;"SVATBA 2026/2/AK";"";"";"";"https://cdn.myshoptet.com/usr/www.tackomat.cz/user/shop/orig/649_podtacky-na-web--12.png?696407f0";"https://cdn.myshoptet.com/usr/www.tackomat.cz/user/shop/orig/649_podtacky-na-web--12.png?696407f0";"https://cdn.myshoptet.com/usr/www.tackomat.cz/user/shop/orig/649-1_podtacky-na-web--6.png?696407f8";"";`;
 
-const sampleHtml = `<table><tr><td>Poznámka:</td><td>Prosím firemní tisk
+const sampleHtml = `<table><tr><td>Jméno:</td><td>Test test</td></tr><tr><td>Poznámka:</td><td>Prosím firemní tisk
 SVATBA 2026/2/AK
 55x
 logo.png - https://ext.dklab.cz/_files/poznamka/688683/attachments/logo.png
@@ -78,6 +78,7 @@ test("POST /vse returns order and product data for authorized requests", async (
     assert.equal(response.headers.get("Cache-Control"), "no-store");
 
     const body = (await response.json()) as {
+      customerName: string;
       orderNote: string;
       products: Array<{
         name: string;
@@ -88,6 +89,7 @@ test("POST /vse returns order and product data for authorized requests", async (
       }>;
     };
 
+    assert.equal(body.customerName, "Test test");
     assert.equal(body.orderNote, "Prosím firemní tisk");
     assert.equal(body.products.length, 1);
     assert.equal(body.products[0]?.name, "SVATBA 2026/2/AK");
