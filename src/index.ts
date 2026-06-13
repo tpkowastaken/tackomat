@@ -1,4 +1,4 @@
-import { parsePoznamka, PoznamkaNotFoundError } from "./parser";
+import { extractPoznamka, PoznamkaNotFoundError } from "./parser";
 import { sampleEmailHtml } from "./sample-email-html";
 
 export default {
@@ -11,12 +11,12 @@ export default {
       }
 
       if (url.pathname === "/poznamka/sample" && request.method === "GET") {
-        return Response.json(parsePoznamka(sampleEmailHtml));
+        return Response.json({ poznamka: extractPoznamka(sampleEmailHtml) });
       }
 
       if (url.pathname === "/poznamka" && request.method === "POST") {
         const html = await readHtmlFromRequest(request);
-        return Response.json(parsePoznamka(html));
+        return Response.json({ poznamka: extractPoznamka(html) });
       }
 
       return Response.json(
