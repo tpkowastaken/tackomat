@@ -84,7 +84,7 @@ test("POST /vse returns order and product data for authorized requests", async (
         quantity: number;
         notes: string[];
         attachments: Array<{ filename: string; url: string }>;
-        images: Array<{ url: string }>;
+        images?: Array<{ url: string }>;
       }>;
     };
 
@@ -99,10 +99,7 @@ test("POST /vse returns order and product data for authorized requests", async (
         url: "https://ext.dklab.cz/_files/poznamka/688683/attachments/logo.png",
       },
     ]);
-    assert.equal(
-      body.products[0]?.images[0]?.url,
-      "https://cdn.myshoptet.com/usr/www.tackomat.cz/user/shop/orig/649_podtacky-na-web--12.png?696407f0",
-    );
+    assert.equal(body.products[0]?.images, undefined);
   } finally {
     globalThis.fetch = originalFetch;
   }
