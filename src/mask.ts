@@ -56,7 +56,7 @@ function parseMask(formData: FormData): MaskSpec {
     throw new MaskRequestError("Multipart form data must include a mask field.");
   }
 
-  const normalized = value.trim().toLowerCase().replace(/\s+/g, "");
+  const normalized = normalizeMaskValue(value);
   if (normalized === "circle" || normalized === "round" || normalized === "111" || normalized === "111mm") {
     return MASKS.circle;
   }
@@ -66,6 +66,15 @@ function parseMask(formData: FormData): MaskSpec {
   }
 
   throw new MaskRequestError("Mask must be circle/111mm or square/99mm.");
+}
+
+function normalizeMaskValue(value: string): string {
+  return value
+    .split("---")
+    .at(-1)
+    ?.trim()
+    .toLowerCase()
+    .replace(/\s+/g, "") ?? "";
 }
 
 async function createMaskedSvg(image: File, mask: MaskSpec): Promise<string> {

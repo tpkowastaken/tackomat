@@ -87,6 +87,28 @@ test("POST /mask returns a 99mm square masked image", async () => {
   assert.match(body, /<rect x="0" y="0" width="99" height="99"/);
 });
 
+test("POST /mask reads the mask from the last category segment", async () => {
+  const formData = new FormData();
+  formData.set("mask", "Products --- Coasters --- 99 mm");
+  formData.set("image", makePngBlob(), "logo.png");
+
+  const response = await worker.fetch(
+    makeRequest("https://example.com/mask", {
+      method: "POST",
+      headers: { Authorization: "Bearer test-api-key" },
+      body: formData,
+    }),
+    env,
+    makeExecutionContext(),
+  );
+
+  assert.equal(response.status, 200);
+
+  const body = await response.text();
+  assert.match(body, /<svg[^>]+width="99mm"[^>]+height="99mm"/);
+  assert.match(body, /<rect x="0" y="0" width="99" height="99"/);
+});
+
 test("POST /mask requires authorization", async () => {
   const formData = new FormData();
   formData.set("mask", "circle");
