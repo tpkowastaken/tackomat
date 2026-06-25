@@ -24,11 +24,11 @@ function makeExecutionContext(): ExecutionContext {
   };
 }
 
-function makePngBlob(): Blob {
+function makePngBlob(type = "image/png"): Blob {
   const base64 =
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
   const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
-  return new Blob([bytes], { type: "image/png" });
+  return new Blob([bytes], { type });
 }
 
 async function assertPngResponse(response: Response): Promise<Uint8Array> {
@@ -98,6 +98,36 @@ test("POST /mask reads the mask from the last category segment", async () => {
 
   assert.equal(response.status, 200);
   assert.equal(response.headers.get("X-Mask-Context"), "Products --- Coasters");
+
+  await assertPngResponse(response);
+});
+
+test("POST /mask accepts multiline context and image filename when file type is missing", async () => {
+  const formData = new FormData();
+  formData.set(
+    "mask",
+    "Pane Procházko\n\nděkujeme za objednávku a prosím o vyjádření k náhledu.\n\nS pozdravem\n\nSadek Vladimir\n\n---circle",
+  );
+  formData.set("image", makePngBlob(""), "make_openai_1782430099985_7161131592077306_1.png");
+
+  const response = await worker.fetch(
+    makeRequest("https://example.com/mask", {
+      method: "POST",
+      headers: { Authorization: "Bearer test-api-key" },
+      body: formData,
+    }),
+    env,
+    makeExecutionContext(),
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(
+    response.headers.get("X-Mask-Context"),
+    encodeURIComponent(
+      "Pane Procházko děkujeme za objednávku a prosím o vyjádření k náhledu. S pozdravem Sadek Vladimir",
+    ),
+  );
+  assert.equal(response.headers.get("X-Mask-Context-Encoding"), "percent");
 
   await assertPngResponse(response);
 });

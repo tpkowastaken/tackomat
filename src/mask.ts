@@ -20,6 +20,11 @@ type ParsedMask = {
   context: string;
 };
 
+type UploadedImage = {
+  file: File;
+  mediaType: string;
+};
+
 const MASKS: Record<MaskSpec["shape"], MaskSpec> = {
   circle: { shape: "circle", sizeMm: 111 },
   square: { shape: "square", sizeMm: 99 },
@@ -44,7 +49,11 @@ export async function createMaskedImageResponse(request: Request): Promise<Respo
     "Content-Type": "image/png",
   });
   if (context) {
-    headers.set("X-Mask-Context", context);
+    const headerContext = encodeHeaderContext(context);
+    headers.set("X-Mask-Context", headerContext.value);
+    if (headerContext.encoding) {
+      headers.set("X-Mask-Context-Encoding", headerContext.encoding);
+    }
   }
 
   return new Response(toArrayBuffer(png), {
@@ -52,17 +61,18 @@ export async function createMaskedImageResponse(request: Request): Promise<Respo
   });
 }
 
-function getImageFile(formData: FormData): File {
+function getImageFile(formData: FormData): UploadedImage {
   const value = formData.get("image") ?? formData.get("file");
   if (!(value instanceof File)) {
     throw new MaskRequestError("Multipart form data must include an image file field.");
   }
 
-  if (!value.type.toLowerCase().startsWith("image/")) {
+  const mediaType = inferImageMediaType(value);
+  if (!mediaType) {
     throw new MaskRequestError("Uploaded file must be an image.");
   }
 
-  return value;
+  return { file: value, mediaType };
 }
 
 function parseMask(formData: FormData): ParsedMask {
@@ -106,7 +116,18 @@ function sanitizeHeaderValue(value: string): string {
   return value.replace(/[\r\n]+/g, " ");
 }
 
-async function createMaskedSvg(image: File, mask: MaskSpec): Promise<string> {
+function encodeHeaderContext(value: string): { value: string; encoding?: "percent" } {
+  if ([...value].every((char) => char.charCodeAt(0) <= 255)) {
+    return { value };
+  }
+
+  return {
+    value: encodeURIComponent(value),
+    encoding: "percent",
+  };
+}
+
+async function createMaskedSvg(image: UploadedImage, mask: MaskSpec): Promise<string> {
   const imageDataUrl = await fileToDataUrl(image);
   const size = mask.sizeMm;
   const clipShape =
@@ -124,7 +145,7 @@ async function createMaskedSvg(image: File, mask: MaskSpec): Promise<string> {
 </svg>`;
 }
 
-async function createMaskedPng(image: File, mask: MaskSpec): Promise<Uint8Array> {
+async function createMaskedPng(image: UploadedImage, mask: MaskSpec): Promise<Uint8Array> {
   await ensureResvgReady();
 
   const svg = await createMaskedSvg(image, mask);
@@ -149,9 +170,36 @@ function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   return buffer;
 }
 
-async function fileToDataUrl(file: File): Promise<string> {
-  const mediaType = escapeXmlAttribute(file.type || "application/octet-stream");
-  const base64 = arrayBufferToBase64(await file.arrayBuffer());
+function inferImageMediaType(file: File): string | null {
+  const explicitType = file.type.toLowerCase();
+  if (explicitType.startsWith("image/")) {
+    return explicitType;
+  }
+
+  const extension = file.name
+    .split("?")[0]
+    .split("#")[0]
+    .match(/\.([a-z0-9]+)$/i)?.[1]
+    .toLowerCase();
+
+  switch (extension) {
+    case "jpg":
+    case "jpeg":
+      return "image/jpeg";
+    case "png":
+      return "image/png";
+    case "gif":
+      return "image/gif";
+    case "webp":
+      return "image/webp";
+    default:
+      return null;
+  }
+}
+
+async function fileToDataUrl(image: UploadedImage): Promise<string> {
+  const mediaType = escapeXmlAttribute(image.mediaType);
+  const base64 = arrayBufferToBase64(await image.file.arrayBuffer());
   return `data:${mediaType};base64,${base64}`;
 }
 
