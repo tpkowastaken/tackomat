@@ -1,5 +1,6 @@
 import { isAuthorized } from "./auth";
 import type { Env } from "./auth";
+import { createMaskedImageResponse, MaskRequestError } from "./mask";
 import { extractVse, VseParseError } from "./parser";
 import { parseProductsCsv } from "./product-complete";
 
@@ -18,12 +19,18 @@ export default {
         return await handleVseRequest(request, env, ctx);
       }
 
+      if (url.pathname === "/mask" && request.method === "POST") {
+        return await handleMaskRequest(request, env);
+      }
+
       return Response.json(
         {
           error: "Not found",
           endpoints: {
             "POST /vse":
               "Send raw email HTML as text/html or JSON as { \"html\": \"...\" }. Requires Authorization: Bearer <api-key> or X-API-Key header.",
+            "POST /mask":
+              "Send multipart form data with image and mask fields. Mask accepts circle/111mm or square/99mm. Requires Authorization: Bearer <api-key> or X-API-Key header.",
           },
         },
         { status: 404 },
@@ -53,6 +60,14 @@ async function handleVseRequest(
       "Cache-Control": "no-store",
     },
   });
+}
+
+async function handleMaskRequest(request: Request, env: Env): Promise<Response> {
+  if (!isAuthorized(request, env)) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  return createMaskedImageResponse(request);
 }
 
 async function fetchProducts(
@@ -122,6 +137,10 @@ async function readHtmlFromRequest(request: Request): Promise<string> {
 export function handleError(error: unknown): Response {
   if (error instanceof VseParseError) {
     return Response.json({ error: error.message }, { status: 422 });
+  }
+
+  if (error instanceof MaskRequestError) {
+    return Response.json({ error: error.message }, { status: error.status });
   }
 
   if (error instanceof Response) {
