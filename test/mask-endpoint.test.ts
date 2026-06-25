@@ -37,6 +37,13 @@ async function assertPngResponse(response: Response): Promise<Uint8Array> {
   return bytes;
 }
 
+async function gzipBody(body: BodyInit): Promise<ArrayBuffer> {
+  const response = new Response(body);
+  const compressed = response.body?.pipeThrough(new CompressionStream("gzip"));
+  assert.ok(compressed);
+  return new Response(compressed).arrayBuffer();
+}
+
 test("POST /mask returns a 111mm circle masked image", async () => {
   const formData = new FormData();
   formData.set("mask", "circle");
@@ -129,6 +136,35 @@ test("POST /mask accepts multiline context and image filename when file type is 
   );
   assert.equal(response.headers.get("X-Mask-Context-Encoding"), "percent");
 
+  await assertPngResponse(response);
+});
+
+test("POST /mask accepts gzip-compressed multipart form data", async () => {
+  const formData = new FormData();
+  formData.set("mask", "Pane Procházko\n\n---circle");
+  formData.set("image", makePngBlob(""), "make_openai_1782430099985_7161131592077306_1.png");
+
+  const multipartRequest = new Request("https://example.com/mask", {
+    method: "POST",
+    body: formData,
+  });
+  const compressedBody = await gzipBody(await multipartRequest.arrayBuffer());
+
+  const response = await worker.fetch(
+    makeRequest("https://example.com/mask", {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer test-api-key",
+        "Content-Encoding": "gzip",
+        "Content-Type": multipartRequest.headers.get("Content-Type") ?? "",
+      },
+      body: compressedBody,
+    }),
+    env,
+    makeExecutionContext(),
+  );
+
+  assert.equal(response.status, 200);
   await assertPngResponse(response);
 });
 

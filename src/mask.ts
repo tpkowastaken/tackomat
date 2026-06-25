@@ -40,7 +40,7 @@ export async function createMaskedImageResponse(request: Request): Promise<Respo
     throw new MaskRequestError("Request must be multipart/form-data.");
   }
 
-  const formData = await request.formData();
+  const formData = await readFormData(request);
   const image = getImageFile(formData);
   const { mask, context } = parseMask(formData);
   const png = await createMaskedPng(image, mask);
@@ -59,6 +59,37 @@ export async function createMaskedImageResponse(request: Request): Promise<Respo
   return new Response(toArrayBuffer(png), {
     headers,
   });
+}
+
+async function readFormData(request: Request): Promise<FormData> {
+  const encoding = request.headers.get("content-encoding")?.trim().toLowerCase();
+  if (!encoding || encoding === "identity") {
+    return request.formData();
+  }
+
+  if (encoding !== "gzip" && encoding !== "x-gzip" && encoding !== "deflate") {
+    throw new MaskRequestError(`Unsupported request content encoding: ${encoding}.`, 415);
+  }
+
+  if (!request.body) {
+    throw new MaskRequestError("Compressed multipart request is missing a body.");
+  }
+
+  const headers = new Headers(request.headers);
+  headers.delete("content-encoding");
+  headers.delete("content-length");
+
+  const decompressedBody = request.body.pipeThrough(
+    new DecompressionStream(encoding === "deflate" ? "deflate" : "gzip"),
+  );
+  const decompressedRequest = new Request(request.url, {
+    body: decompressedBody,
+    duplex: "half",
+    headers,
+    method: request.method,
+  } as RequestInit & { duplex: "half" });
+
+  return decompressedRequest.formData();
 }
 
 function getImageFile(formData: FormData): UploadedImage {
@@ -160,8 +191,21 @@ async function createMaskedPng(image: UploadedImage, mask: MaskSpec): Promise<Ui
 }
 
 function ensureResvgReady(): Promise<void> {
-  resvgReady ??= initWasm(fetch(RESVG_WASM_URL));
+  resvgReady ??= loadResvgWasm().then((wasm) => initWasm(wasm));
   return resvgReady;
+}
+
+async function loadResvgWasm(): Promise<WebAssembly.Module | Response> {
+  if (isNodeRuntime()) {
+    return fetch(RESVG_WASM_URL);
+  }
+
+  const wasm = await import("@resvg/resvg-wasm/index_bg.wasm");
+  return wasm.default;
+}
+
+function isNodeRuntime(): boolean {
+  return typeof process !== "undefined" && Boolean(process.versions?.node);
 }
 
 function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
