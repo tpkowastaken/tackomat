@@ -1,3 +1,5 @@
+import { initWasm, Resvg } from "@resvg/resvg-wasm";
+
 export class MaskRequestError extends Error {
   readonly status: number;
 
@@ -13,10 +15,19 @@ type MaskSpec = {
   sizeMm: number;
 };
 
+type ParsedMask = {
+  mask: MaskSpec;
+  context: string;
+};
+
 const MASKS: Record<MaskSpec["shape"], MaskSpec> = {
   circle: { shape: "circle", sizeMm: 111 },
   square: { shape: "square", sizeMm: 99 },
 };
+
+const RESVG_WASM_URL = "https://cdn.jsdelivr.net/npm/@resvg/resvg-wasm@2.6.2/index_bg.wasm";
+
+let resvgReady: Promise<void> | null = null;
 
 export async function createMaskedImageResponse(request: Request): Promise<Response> {
   const contentType = request.headers.get("content-type") ?? "";
@@ -26,14 +37,18 @@ export async function createMaskedImageResponse(request: Request): Promise<Respo
 
   const formData = await request.formData();
   const image = getImageFile(formData);
-  const mask = parseMask(formData);
-  const svg = await createMaskedSvg(image, mask);
+  const { mask, context } = parseMask(formData);
+  const png = await createMaskedPng(image, mask);
+  const headers = new Headers({
+    "Cache-Control": "no-store",
+    "Content-Type": "image/png",
+  });
+  if (context) {
+    headers.set("X-Mask-Context", context);
+  }
 
-  return new Response(svg, {
-    headers: {
-      "Cache-Control": "no-store",
-      "Content-Type": "image/svg+xml; charset=utf-8",
-    },
+  return new Response(toArrayBuffer(png), {
+    headers,
   });
 }
 
@@ -50,22 +65,32 @@ function getImageFile(formData: FormData): File {
   return value;
 }
 
-function parseMask(formData: FormData): MaskSpec {
+function parseMask(formData: FormData): ParsedMask {
   const value = formData.get("mask") ?? formData.get("shape");
   if (typeof value !== "string") {
     throw new MaskRequestError("Multipart form data must include a mask field.");
   }
 
+  const context = parseMaskContext(value);
   const normalized = normalizeMaskValue(value);
   if (normalized === "circle" || normalized === "round" || normalized === "111" || normalized === "111mm") {
-    return MASKS.circle;
+    return { mask: MASKS.circle, context };
   }
 
   if (normalized === "square" || normalized === "99" || normalized === "99mm") {
-    return MASKS.square;
+    return { mask: MASKS.square, context };
   }
 
   throw new MaskRequestError("Mask must be circle/111mm or square/99mm.");
+}
+
+function parseMaskContext(value: string): string {
+  const segments = value.split("---");
+  if (segments.length < 2) {
+    return "";
+  }
+
+  return sanitizeHeaderValue(segments.slice(0, -1).join("---").trim());
 }
 
 function normalizeMaskValue(value: string): string {
@@ -75,6 +100,10 @@ function normalizeMaskValue(value: string): string {
     ?.trim()
     .toLowerCase()
     .replace(/\s+/g, "") ?? "";
+}
+
+function sanitizeHeaderValue(value: string): string {
+  return value.replace(/[\r\n]+/g, " ");
 }
 
 async function createMaskedSvg(image: File, mask: MaskSpec): Promise<string> {
@@ -93,6 +122,31 @@ async function createMaskedSvg(image: File, mask: MaskSpec): Promise<string> {
   </defs>
   <image href="${imageDataUrl}" x="0" y="0" width="${size}" height="${size}" preserveAspectRatio="xMidYMid slice" clip-path="url(#mask)" />
 </svg>`;
+}
+
+async function createMaskedPng(image: File, mask: MaskSpec): Promise<Uint8Array> {
+  await ensureResvgReady();
+
+  const svg = await createMaskedSvg(image, mask);
+  const rendered = new Resvg(svg, {
+    fitTo: {
+      mode: "original",
+    },
+    imageRendering: 0,
+  }).render();
+
+  return rendered.asPng();
+}
+
+function ensureResvgReady(): Promise<void> {
+  resvgReady ??= initWasm(fetch(RESVG_WASM_URL));
+  return resvgReady;
+}
+
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const buffer = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(buffer).set(bytes);
+  return buffer;
 }
 
 async function fileToDataUrl(file: File): Promise<string> {

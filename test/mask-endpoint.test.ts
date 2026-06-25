@@ -25,18 +25,16 @@ function makeExecutionContext(): ExecutionContext {
 }
 
 function makePngBlob(): Blob {
-  return new Blob(
-    [
-      new Uint8Array([
-        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
-        0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
-        0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
-        0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4,
-        0x89,
-      ]),
-    ],
-    { type: "image/png" },
-  );
+  const base64 =
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
+  const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
+  return new Blob([bytes], { type: "image/png" });
+}
+
+async function assertPngResponse(response: Response): Promise<Uint8Array> {
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  assert.deepEqual([...bytes.slice(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
+  return bytes;
 }
 
 test("POST /mask returns a 111mm circle masked image", async () => {
@@ -56,13 +54,10 @@ test("POST /mask returns a 111mm circle masked image", async () => {
 
   assert.equal(response.status, 200);
   assert.equal(response.headers.get("Cache-Control"), "no-store");
-  assert.equal(response.headers.get("Content-Type"), "image/svg+xml; charset=utf-8");
+  assert.equal(response.headers.get("Content-Type"), "image/png");
+  assert.equal(response.headers.get("X-Mask-Context"), null);
 
-  const body = await response.text();
-  assert.match(body, /<svg[^>]+width="111mm"[^>]+height="111mm"/);
-  assert.match(body, /<circle cx="55\.5" cy="55\.5" r="55\.5"/);
-  assert.match(body, /href="data:image\/png;base64,/);
-  assert.match(body, /preserveAspectRatio="xMidYMid slice"/);
+  await assertPngResponse(response);
 });
 
 test("POST /mask returns a 99mm square masked image", async () => {
@@ -81,10 +76,9 @@ test("POST /mask returns a 99mm square masked image", async () => {
   );
 
   assert.equal(response.status, 200);
+  assert.equal(response.headers.get("X-Mask-Context"), null);
 
-  const body = await response.text();
-  assert.match(body, /<svg[^>]+width="99mm"[^>]+height="99mm"/);
-  assert.match(body, /<rect x="0" y="0" width="99" height="99"/);
+  await assertPngResponse(response);
 });
 
 test("POST /mask reads the mask from the last category segment", async () => {
@@ -103,10 +97,9 @@ test("POST /mask reads the mask from the last category segment", async () => {
   );
 
   assert.equal(response.status, 200);
+  assert.equal(response.headers.get("X-Mask-Context"), "Products --- Coasters");
 
-  const body = await response.text();
-  assert.match(body, /<svg[^>]+width="99mm"[^>]+height="99mm"/);
-  assert.match(body, /<rect x="0" y="0" width="99" height="99"/);
+  await assertPngResponse(response);
 });
 
 test("POST /mask requires authorization", async () => {
