@@ -21,6 +21,7 @@ const sampleHtml = `<table><tr><td>Jméno:</td><td>Test test</td></tr><tr><td>Po
 SVATBA 2026/2/AK
 55x
 logo.png - https://ext.dklab.cz/_files/poznamka/688683/attachments/logo.png
+zadani.pdf - https://ext.dklab.cz/_files/poznamka/688683/attachments/zadani.pdf
 Instrukce ke grafice: Použijte černý text.</td></tr></table>`;
 
 function makeExecutionContext(): ExecutionContext {
@@ -85,6 +86,9 @@ test("POST /vse returns order and product data for authorized requests", async (
         quantity: number;
         notes: string[];
         attachments: Array<{ filename: string; url: string }>;
+        non_img_attachments: Array<{ filename: string; url: string }>;
+        user_input_weirdness: string;
+        is_both_sided: boolean;
         images: Array<{ url: string }>;
       }>;
     };
@@ -101,6 +105,17 @@ test("POST /vse returns order and product data for authorized requests", async (
         url: "https://ext.dklab.cz/_files/poznamka/688683/attachments/logo.png",
       },
     ]);
+    assert.deepEqual(body.products[0]?.non_img_attachments, [
+      {
+        filename: "zadani.pdf",
+        url: "https://ext.dklab.cz/_files/poznamka/688683/attachments/zadani.pdf",
+      },
+    ]);
+    assert.equal(
+      body.products[0]?.user_input_weirdness,
+      "The user has supplied 1 or more non-img attachments",
+    );
+    assert.equal(body.products[0]?.is_both_sided, false);
     assert.equal(
       body.products[0]?.images[0]?.url,
       "https://cdn.myshoptet.com/usr/www.tackomat.cz/user/shop/orig/649_podtacky-na-web--12.png?696407f0",

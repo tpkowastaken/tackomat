@@ -7,6 +7,7 @@ test("extractVse splits order note, product quantities, notes, and attachments",
 HVĚZDA - oboustranný tisk
 30x
 image (2).jpg - https://ext.dklab.cz/_files/poznamka/688683/attachments/688683_773664_1780917100.jpg
+brief.pdf - https://ext.dklab.cz/_files/poznamka/688683/attachments/brief.pdf
 Instrukce ke grafice: TEST
 
 SVATBA 2026/1/AK
@@ -33,8 +34,19 @@ Instrukce ke grafice: TEST 2</td></tr></table>`;
         url: "https://ext.dklab.cz/_files/poznamka/688683/attachments/688683_773664_1780917100.jpg",
       },
     ],
+    non_img_attachments: [
+      {
+        filename: "brief.pdf",
+        url: "https://ext.dklab.cz/_files/poznamka/688683/attachments/brief.pdf",
+      },
+    ],
+    user_input_weirdness: "The user has supplied 1 or more non-img attachments",
+    is_both_sided: true,
   });
   assert.deepEqual(result.products[1]?.notes, ["Instrukce ke grafice: TEST 2"]);
+  assert.deepEqual(result.products[1]?.non_img_attachments, []);
+  assert.equal(result.products[1]?.user_input_weirdness, "");
+  assert.equal(result.products[1]?.is_both_sided, false);
 });
 
 test("extractVse ignores products without product notes or attachments", () => {

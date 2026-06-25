@@ -21,6 +21,9 @@ export type OrderedProduct = {
   images?: unknown[];
   notes: string[];
   attachments: Attachment[];
+  non_img_attachments: Attachment[];
+  user_input_weirdness: string;
+  is_both_sided: boolean;
 };
 
 export type VsePayload = {
@@ -81,6 +84,9 @@ export function extractVse(html: string, products: ProductLookup[]): VsePayload 
         ...(product?.images ? { images: product.images } : {}),
         notes: [],
         attachments: [],
+        non_img_attachments: [],
+        user_input_weirdness: "",
+        is_both_sided: isBothSidedProduct(product?.name ?? line),
       };
       currentProductHasNote = false;
       continue;
@@ -99,7 +105,13 @@ export function extractVse(html: string, products: ProductLookup[]): VsePayload 
 
     const attachment = parseAttachment(line);
     if (attachment) {
-      currentProduct.attachments.push(attachment);
+      if (isImageAttachment(attachment)) {
+        currentProduct.attachments.push(attachment);
+      } else {
+        currentProduct.non_img_attachments.push(attachment);
+        currentProduct.user_input_weirdness =
+          "The user has supplied 1 or more non-img attachments";
+      }
     } else {
       currentProduct.notes.push(line);
     }
@@ -138,6 +150,43 @@ function parseAttachment(line: string): Attachment | null {
     filename: match[1].trim(),
     url: match[2].trim(),
   };
+}
+
+function isImageAttachment(attachment: Attachment): boolean {
+  const mimeType = attachmentMimeType(attachment);
+  return (
+    mimeType === "image/jpeg" ||
+    mimeType === "image/png" ||
+    mimeType === "image/gif" ||
+    mimeType === "image/webp"
+  );
+}
+
+function attachmentMimeType(attachment: Attachment): string | null {
+  const path = attachment.filename || attachment.url;
+  const extension = path
+    .split("?")[0]
+    .split("#")[0]
+    .match(/\.([a-z0-9]+)$/i)?.[1]
+    .toLowerCase();
+
+  switch (extension) {
+    case "jpg":
+    case "jpeg":
+      return "image/jpeg";
+    case "png":
+      return "image/png";
+    case "gif":
+      return "image/gif";
+    case "webp":
+      return "image/webp";
+    default:
+      return null;
+  }
+}
+
+function isBothSidedProduct(name: string): boolean {
+  return name.toLocaleUpperCase("cs-CZ").includes("OBOUSTRANNÝ");
 }
 
 function normalizeLine(line: string): string {
