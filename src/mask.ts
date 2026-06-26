@@ -44,13 +44,20 @@ export async function createMaskedImageResponse(request: Request): Promise<Respo
   const image = getImageFile(formData);
   const { mask, context } = parseMask(formData);
   const png = await createMaskedPng(image, mask);
-  const { body, boundary } = buildMultipartBody(context, png);
+  const headers = new Headers({
+    "Cache-Control": "no-store",
+    "Content-Type": "image/png",
+  });
+  if (context) {
+    const headerContext = encodeHeaderContext(context);
+    headers.set("X-Mask-Context", headerContext.value);
+    if (headerContext.encoding) {
+      headers.set("X-Mask-Context-Encoding", headerContext.encoding);
+    }
+  }
 
-  return new Response(body, {
-    headers: {
-      "Cache-Control": "no-store",
-      "Content-Type": `multipart/mixed; boundary=${boundary}`,
-    },
+  return new Response(toArrayBuffer(png), {
+    headers,
   });
 }
 
@@ -124,7 +131,7 @@ function parseMaskContext(value: string): string {
     return "";
   }
 
-  return segments.slice(0, -1).join("---").trim().replace(/\r\n/g, "\n");
+  return sanitizeHeaderValue(segments.slice(0, -1).join("---").trim());
 }
 
 function normalizeMaskValue(value: string): string {
@@ -136,6 +143,20 @@ function normalizeMaskValue(value: string): string {
     .replace(/\s+/g, "") ?? "";
 }
 
+function sanitizeHeaderValue(value: string): string {
+  return value.replace(/[\r\n]+/g, " ");
+}
+
+function encodeHeaderContext(value: string): { value: string; encoding?: "percent" } {
+  if ([...value].every((char) => char.charCodeAt(0) <= 255)) {
+    return { value };
+  }
+
+  return {
+    value: encodeURIComponent(value),
+    encoding: "percent",
+  };
+}
 
 async function createMaskedSvg(image: UploadedImage, mask: MaskSpec): Promise<string> {
   const imageDataUrl = await fileToDataUrl(image);
@@ -153,26 +174,6 @@ async function createMaskedSvg(image: UploadedImage, mask: MaskSpec): Promise<st
   </defs>
   <image href="${imageDataUrl}" x="0" y="0" width="${size}" height="${size}" preserveAspectRatio="xMidYMid slice" clip-path="url(#mask)" />
 </svg>`;
-}
-
-function buildMultipartBody(context: string, png: Uint8Array): { body: ArrayBuffer; boundary: string } {
-  const boundary = "MaskResponseBoundary";
-  const encoder = new TextEncoder();
-
-  const contextPart = encoder.encode(
-    `--${boundary}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${context}\r\n`,
-  );
-  const imagePartHeader = encoder.encode(`--${boundary}\r\nContent-Type: image/png\r\n\r\n`);
-  const closing = encoder.encode(`\r\n--${boundary}--`);
-
-  const body = new Uint8Array(contextPart.length + imagePartHeader.length + png.length + closing.length);
-  let offset = 0;
-  body.set(contextPart, offset); offset += contextPart.length;
-  body.set(imagePartHeader, offset); offset += imagePartHeader.length;
-  body.set(png, offset); offset += png.length;
-  body.set(closing, offset);
-
-  return { body: toArrayBuffer(body), boundary };
 }
 
 async function createMaskedPng(image: UploadedImage, mask: MaskSpec): Promise<Uint8Array> {

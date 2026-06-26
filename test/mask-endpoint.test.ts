@@ -31,51 +31,10 @@ function makePngBlob(type = "image/png"): Blob {
   return new Blob([bytes], { type });
 }
 
-const PNG_MAGIC = [137, 80, 78, 71, 13, 10, 26, 10];
-
-async function parseMultipartMaskResponse(response: Response): Promise<{ context: string; png: Uint8Array }> {
-  const contentType = response.headers.get("Content-Type") ?? "";
-  const boundaryMatch = contentType.match(/boundary=([^\s;]+)/);
-  assert.ok(boundaryMatch, `Expected multipart/mixed content type, got: ${contentType}`);
-  const boundary = boundaryMatch[1];
-
-  const body = new Uint8Array(await response.arrayBuffer());
-  const decoder = new TextDecoder();
-  const text = decoder.decode(body);
-
-  // Split on boundary lines; skip preamble before first boundary
-  const delimiterPattern = `--${boundary}`;
-  const parts = text.split(delimiterPattern).slice(1); // first element is preamble
-
-  assert.ok(parts.length >= 2, "Expected at least 2 multipart parts");
-
-  function parsePartText(raw: string): string {
-    const headerBodySep = raw.indexOf("\r\n\r\n");
-    assert.ok(headerBodySep !== -1, "Multipart part missing header/body separator");
-    return raw.slice(headerBodySep + 4).replace(/\r\n$/, "");
-  }
-
-  const context = parsePartText(parts[0]);
-
-  // Extract PNG bytes from second part using byte-level search
-  const encoder = new TextEncoder();
-  const imageHeaderSearch = encoder.encode(`--${boundary}\r\nContent-Type: image/png\r\n\r\n`);
-  let imageStart = -1;
-  outer: for (let i = 0; i <= body.length - imageHeaderSearch.length; i++) {
-    for (let j = 0; j < imageHeaderSearch.length; j++) {
-      if (body[i + j] !== imageHeaderSearch[j]) continue outer;
-    }
-    imageStart = i + imageHeaderSearch.length;
-    break;
-  }
-  assert.ok(imageStart !== -1, "Could not find image part in multipart response");
-
-  const closingBytes = encoder.encode(`\r\n--${boundary}--`);
-  let imageEnd = body.length - closingBytes.length;
-  const png = body.slice(imageStart, imageEnd);
-
-  assert.deepEqual([...png.slice(0, 8)], PNG_MAGIC, "Image part does not start with PNG magic bytes");
-  return { context, png };
+async function assertPngResponse(response: Response): Promise<Uint8Array> {
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  assert.deepEqual([...bytes.slice(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
+  return bytes;
 }
 
 async function gzipBody(body: BodyInit): Promise<ArrayBuffer> {
@@ -102,10 +61,10 @@ test("POST /mask returns a 111mm circle masked image", async () => {
 
   assert.equal(response.status, 200);
   assert.equal(response.headers.get("Cache-Control"), "no-store");
-  assert.ok(response.headers.get("Content-Type")?.startsWith("multipart/mixed"));
+  assert.equal(response.headers.get("Content-Type"), "image/png");
+  assert.equal(response.headers.get("X-Mask-Context"), null);
 
-  const { context } = await parseMultipartMaskResponse(response);
-  assert.equal(context, "");
+  await assertPngResponse(response);
 });
 
 test("POST /mask returns a 99mm square masked image", async () => {
@@ -124,9 +83,9 @@ test("POST /mask returns a 99mm square masked image", async () => {
   );
 
   assert.equal(response.status, 200);
+  assert.equal(response.headers.get("X-Mask-Context"), null);
 
-  const { context } = await parseMultipartMaskResponse(response);
-  assert.equal(context, "");
+  await assertPngResponse(response);
 });
 
 test("POST /mask reads the mask from the last category segment", async () => {
@@ -145,9 +104,9 @@ test("POST /mask reads the mask from the last category segment", async () => {
   );
 
   assert.equal(response.status, 200);
+  assert.equal(response.headers.get("X-Mask-Context"), "Products --- Coasters");
 
-  const { context } = await parseMultipartMaskResponse(response);
-  assert.equal(context, "Products --- Coasters");
+  await assertPngResponse(response);
 });
 
 test("POST /mask accepts multiline context and image filename when file type is missing", async () => {
@@ -169,12 +128,15 @@ test("POST /mask accepts multiline context and image filename when file type is 
   );
 
   assert.equal(response.status, 200);
-
-  const { context } = await parseMultipartMaskResponse(response);
   assert.equal(
-    context,
-    "Pane Procházko\n\nděkujeme za objednávku a prosím o vyjádření k náhledu.\n\nS pozdravem\n\nSadek Vladimir",
+    response.headers.get("X-Mask-Context"),
+    encodeURIComponent(
+      "Pane Procházko děkujeme za objednávku a prosím o vyjádření k náhledu. S pozdravem Sadek Vladimir",
+    ),
   );
+  assert.equal(response.headers.get("X-Mask-Context-Encoding"), "percent");
+
+  await assertPngResponse(response);
 });
 
 test("POST /mask accepts gzip-compressed multipart form data", async () => {
@@ -203,7 +165,7 @@ test("POST /mask accepts gzip-compressed multipart form data", async () => {
   );
 
   assert.equal(response.status, 200);
-  await parseMultipartMaskResponse(response);
+  await assertPngResponse(response);
 });
 
 test("POST /mask requires authorization", async () => {
