@@ -44,20 +44,16 @@ export async function createMaskedImageResponse(request: Request): Promise<Respo
   const image = getImageFile(formData);
   const { mask, context } = parseMask(formData);
   const png = await createMaskedPng(image, mask);
-  const headers = new Headers({
-    "Cache-Control": "no-store",
-    "Content-Type": "image/png",
+  const body = JSON.stringify({
+    image: arrayBufferToBase64(toArrayBuffer(png)),
+    context,
   });
-  if (context) {
-    const headerContext = encodeHeaderContext(context);
-    headers.set("X-Mask-Context", headerContext.value);
-    if (headerContext.encoding) {
-      headers.set("X-Mask-Context-Encoding", headerContext.encoding);
-    }
-  }
 
-  return new Response(toArrayBuffer(png), {
-    headers,
+  return new Response(body, {
+    headers: new Headers({
+      "Cache-Control": "no-store",
+      "Content-Type": "application/json",
+    }),
   });
 }
 
@@ -131,7 +127,7 @@ function parseMaskContext(value: string): string {
     return "";
   }
 
-  return sanitizeHeaderValue(segments.slice(0, -1).join("---").trim());
+  return segments.slice(0, -1).join("---").trim();
 }
 
 function normalizeMaskValue(value: string): string {
@@ -143,20 +139,6 @@ function normalizeMaskValue(value: string): string {
     .replace(/\s+/g, "") ?? "";
 }
 
-function sanitizeHeaderValue(value: string): string {
-  return value.replace(/[\r\n]+/g, " ");
-}
-
-function encodeHeaderContext(value: string): { value: string; encoding?: "percent" } {
-  if ([...value].every((char) => char.charCodeAt(0) <= 255)) {
-    return { value };
-  }
-
-  return {
-    value: encodeURIComponent(value),
-    encoding: "percent",
-  };
-}
 
 async function createMaskedSvg(image: UploadedImage, mask: MaskSpec): Promise<string> {
   const imageDataUrl = await fileToDataUrl(image);

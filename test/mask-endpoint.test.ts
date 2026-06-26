@@ -31,10 +31,12 @@ function makePngBlob(type = "image/png"): Blob {
   return new Blob([bytes], { type });
 }
 
-async function assertPngResponse(response: Response): Promise<Uint8Array> {
-  const bytes = new Uint8Array(await response.arrayBuffer());
+async function assertJsonPngResponse(response: Response): Promise<{ image: string; context: string }> {
+  assert.equal(response.headers.get("Content-Type"), "application/json");
+  const body = await response.json() as { image: string; context: string };
+  const bytes = Uint8Array.from(atob(body.image), (char) => char.charCodeAt(0));
   assert.deepEqual([...bytes.slice(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
-  return bytes;
+  return body;
 }
 
 async function gzipBody(body: BodyInit): Promise<ArrayBuffer> {
@@ -61,10 +63,9 @@ test("POST /mask returns a 111mm circle masked image", async () => {
 
   assert.equal(response.status, 200);
   assert.equal(response.headers.get("Cache-Control"), "no-store");
-  assert.equal(response.headers.get("Content-Type"), "image/png");
-  assert.equal(response.headers.get("X-Mask-Context"), null);
 
-  await assertPngResponse(response);
+  const body = await assertJsonPngResponse(response);
+  assert.equal(body.context, "");
 });
 
 test("POST /mask returns a 99mm square masked image", async () => {
@@ -83,9 +84,9 @@ test("POST /mask returns a 99mm square masked image", async () => {
   );
 
   assert.equal(response.status, 200);
-  assert.equal(response.headers.get("X-Mask-Context"), null);
 
-  await assertPngResponse(response);
+  const body = await assertJsonPngResponse(response);
+  assert.equal(body.context, "");
 });
 
 test("POST /mask reads the mask from the last category segment", async () => {
@@ -104,9 +105,9 @@ test("POST /mask reads the mask from the last category segment", async () => {
   );
 
   assert.equal(response.status, 200);
-  assert.equal(response.headers.get("X-Mask-Context"), "Products --- Coasters");
 
-  await assertPngResponse(response);
+  const body = await assertJsonPngResponse(response);
+  assert.equal(body.context, "Products --- Coasters");
 });
 
 test("POST /mask accepts multiline context and image filename when file type is missing", async () => {
@@ -128,15 +129,12 @@ test("POST /mask accepts multiline context and image filename when file type is 
   );
 
   assert.equal(response.status, 200);
-  assert.equal(
-    response.headers.get("X-Mask-Context"),
-    encodeURIComponent(
-      "Pane Procházko děkujeme za objednávku a prosím o vyjádření k náhledu. S pozdravem Sadek Vladimir",
-    ),
-  );
-  assert.equal(response.headers.get("X-Mask-Context-Encoding"), "percent");
 
-  await assertPngResponse(response);
+  const body = await assertJsonPngResponse(response);
+  assert.equal(
+    body.context,
+    "Pane Procházko\r\n\r\nděkujeme za objednávku a prosím o vyjádření k náhledu.\r\n\r\nS pozdravem\r\n\r\nSadek Vladimir",
+  );
 });
 
 test("POST /mask accepts gzip-compressed multipart form data", async () => {
@@ -165,7 +163,7 @@ test("POST /mask accepts gzip-compressed multipart form data", async () => {
   );
 
   assert.equal(response.status, 200);
-  await assertPngResponse(response);
+  await assertJsonPngResponse(response);
 });
 
 test("POST /mask requires authorization", async () => {
